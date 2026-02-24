@@ -34,7 +34,6 @@ import {sleep} from "@/utils/time-utils.js";
 import router from "@/router/index.js";
 import {Icon} from "@iconify/vue";
 import { useRoute } from 'vue-router'
-import {AutoRefreshEnum} from "@/enums/setting-enum.js";
 
 defineOptions({
   name: 'email'
@@ -78,7 +77,8 @@ const existIds = new Set();
 async function latest() {
   while (true) {
 
-    await sleep(1000)
+    let autoRefresh = settingStore.settings.autoRefresh;
+    await sleep(autoRefresh > 1 ? autoRefresh * 1000 : 3000);
 
     if (route.name !== 'email') {
       continue;
@@ -86,7 +86,7 @@ async function latest() {
 
     const latestId = scroll.value.latestEmail?.emailId
 
-    if (!scroll.value.firstLoad && settingStore.settings.autoRefresh === AutoRefreshEnum.ENABLED) {
+    if (!scroll.value.firstLoad && autoRefresh > 1) {
       try {
         const accountId = accountStore.currentAccountId
         const allReceive = scroll.value.latestEmail?.allReceive
@@ -110,19 +110,7 @@ async function latest() {
               if (!existIds.has(email.emailId)) {
 
                 existIds.add(email.emailId)
-                const flag = scroll.value.addItem(email)
-
-                if (innerWidth > 1367 && flag) {
-                  ElNotification({
-                    type: 'primary',
-                    message: `<div style="cursor: pointer;"><div style="overflow: hidden;white-space: nowrap;text-overflow: ellipsis; font-weight: bold;font-size: 16px;margin-bottom: 5px;">${email.name}</div><div style="color: teal;">${email.subject}</div></div>`,
-                    position: 'bottom-right',
-                    dangerouslyUseHTMLString: true,
-                    onClick: () => {
-                      jumpContent(email);
-                    }
-                  })
-                }
+                scroll.value.addItem(email)
 
                 await sleep(50)
               }
@@ -134,7 +122,7 @@ async function latest() {
         }
       } catch (e) {
         if (e.code === 401 || e.code === 403) {
-          settingStore.settings.autoRefresh = AutoRefreshEnum.DISABLED;
+          settingStore.settings.autoRefresh = 0;
         }
         console.error(e)
       }
