@@ -87,6 +87,10 @@ const premKey = {
 	'reg-key:delete': ['/regKey/delete','/regKey/clearNotUse'],
 };
 
+function isAdminOnlyPath(path) {
+	return path.startsWith('/allEmail/');
+}
+
 app.use('*', async (c, next) => {
 
 	const path = c.req.path;
@@ -134,6 +138,10 @@ app.use('*', async (c, next) => {
 	});
 
 	if (permIndex > -1) {
+
+		if (isAdminOnlyPath(path) && authInfo.user.email !== c.env.admin) {
+			throw new BizError(t('unauthorized'), 403);
+		}
 
 		const permKeys = await permService.userPermKeys(c, authInfo.user.userId);
 

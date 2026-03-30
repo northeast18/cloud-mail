@@ -24,13 +24,26 @@ const permService = {
 	},
 
 	async userPermKeys(c, userId) {
-		const userPerms = await orm(c).select({permKey: perm.permKey}).from(user)
+		const userPerms = await orm(c).select({permKey: perm.permKey, email: user.email}).from(user)
 			.leftJoin(role, eq(role.roleId,user.type))
 			.rightJoin(rolePerm, eq(rolePerm.roleId,role.roleId))
 			.leftJoin(perm, eq(rolePerm.permId,perm.permId))
 			.where(and(eq(user.userId,userId),eq(perm.type,permConst.type.BUTTON)))
 			.all();
-		return userPerms.map(perm => perm.permKey);
+
+		const userEmail = userPerms[0]?.email;
+
+		return userPerms
+			.map(perm => perm.permKey)
+			.filter(permKey => {
+				if (!permKey) {
+					return false;
+				}
+				if (userEmail !== c.env.admin && permKey.startsWith('all-email:')) {
+					return false;
+				}
+				return true;
+			});
 	}
 }
 
