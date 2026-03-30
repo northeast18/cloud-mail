@@ -44,6 +44,16 @@
 | ![](/doc/demo/demo3.png) | ![](/doc/demo/demo4.png) |
 
 
+## 更新说明
+
+- 已修复 Cloudflare Workers + D1 部署场景下，用户注册时偶发出现 `UNIQUE constraint failed: user.email` 的问题。
+- 已优化注册与后台新增用户逻辑，创建账号前会同时检查 `user` 表与 `account` 表，避免历史脏数据或并发写入导致注册失败。
+- 当检测到 `user` 表已有用户但 `account` 表缺少对应主账号记录时，系统会自动补齐缺失的账号数据。
+- 已将数据库唯一索引冲突统一转换为业务提示“邮箱已注册”，避免前端直接显示底层 D1 错误。
+- 新增 D1 修复脚本 [`mail-worker/sql/repair_orphan_users.sql`](/home/north/projects/cloud-mail/mail-worker/sql/repair_orphan_users.sql)，用于处理历史遗留的孤儿用户数据。
+- 旧版本升级后，如数据库缺少新增字段，请执行一次 `/api/init/{jwt_secret}` 完成数据库迁移，否则可能出现 `no such column: account.sort` 之类的错误。
+
+
 
 
 ## 功能介绍
@@ -151,6 +161,5 @@ cloud-mail
 ## 交流
 
 [Telegram](https://t.me/cloud_mail_tg)
-
 
 
