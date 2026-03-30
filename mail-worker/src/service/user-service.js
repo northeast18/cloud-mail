@@ -19,6 +19,29 @@ import reqUtils from '../utils/req-utils';
 import {oauth} from "../entity/oauth";
 import oauthService from "./oauth-service";
 
+async function ensureUserAccountConsistency(c, email, userRow) {
+	if (!userRow || userRow.isDel === isDel.DELETE) {
+		return;
+	}
+
+	const accountRow = await accountService.selectByEmailIncludeDel(c, email);
+
+	if (!accountRow) {
+		await accountService.insert(c, {
+			userId: userRow.userId,
+			email,
+			name: emailUtils.getName(email)
+		});
+	}
+}
+
+function isUniqueEmailError(error) {
+	const message = String(error?.message || error || '');
+	return message.includes('UNIQUE constraint failed: user.email')
+		|| message.includes('UNIQUE constraint failed: account.email')
+		|| message.includes('SQLITE_CONSTRAINT_UNIQUE');
+}
+
 const userService = {
 
 	async loginUserInfo(c, userId) {
@@ -314,6 +337,17 @@ const userService = {
 			throw new BizError(t('pwdMinLength'));
 		}
 
+		const userRow = await userService.selectByEmailIncludeDel(c, email);
+
+		if (userRow && userRow.isDel === isDel.DELETE) {
+			throw new BizError(t('isDelUser'));
+		}
+
+		if (userRow) {
+			await ensureUserAccountConsistency(c, email, userRow);
+			throw new BizError(t('isRegAccount'));
+		}
+
 		const accountRow = await accountService.selectByEmailIncludeDel(c, email);
 
 		if (accountRow && accountRow.isDel === isDel.DELETE) {
@@ -324,7 +358,7 @@ const userService = {
 			throw new BizError(t('isRegAccount'));
 		}
 
-		const role = roleService.selectById(c, type);
+		const role = await roleService.selectById(c, type);
 
 		if (!role) {
 			throw new BizError(t('roleNotExist'));
@@ -332,11 +366,29 @@ const userService = {
 
 		const { salt, hash } = await saltHashUtils.hashPassword(password);
 
-		const userId = await userService.insert(c, { email, password: hash, salt, type });
+		let userId = null;
 
-		await userService.updateUserInfo(c, userId, true);
+		try {
+			userId = await userService.insert(c, { email, password: hash, salt, type });
+			await userService.updateUserInfo(c, userId, true);
+			await accountService.insert(c, { userId: userId, email, type, name: emailUtils.getName(email) });
+		} catch (error) {
+			if (!isUniqueEmailError(error)) {
+				throw error;
+			}
 
-		await accountService.insert(c, { userId: userId, email, type, name: emailUtils.getName(email) });
+			const latestUserRow = await userService.selectByEmailIncludeDel(c, email);
+
+			if (latestUserRow && latestUserRow.isDel === isDel.DELETE) {
+				throw new BizError(t('isDelUser'));
+			}
+
+			if (latestUserRow) {
+				await ensureUserAccountConsistency(c, email, latestUserRow);
+			}
+
+			throw new BizError(t('isRegAccount'));
+		}
 	},
 
 	async resetDaySendCount(c) {

@@ -20,6 +20,29 @@ import { toUtc } from '../utils/date-uitil';
 import { t } from '../i18n/i18n.js';
 import verifyRecordService from './verify-record-service';
 
+async function ensureUserAccountConsistency(c, email, userRow) {
+	if (!userRow || userRow.isDel === isDel.DELETE) {
+		return;
+	}
+
+	const accountRow = await accountService.selectByEmailIncludeDel(c, email);
+
+	if (!accountRow) {
+		await accountService.insert(c, {
+			userId: userRow.userId,
+			email,
+			name: emailUtils.getName(email)
+		});
+	}
+}
+
+function isUniqueEmailError(error) {
+	const message = String(error?.message || error || '');
+	return message.includes('UNIQUE constraint failed: user.email')
+		|| message.includes('UNIQUE constraint failed: account.email')
+		|| message.includes('SQLITE_CONSTRAINT_UNIQUE');
+}
+
 const loginService = {
 
 	async register(c, params, oauth = false) {
@@ -80,6 +103,17 @@ const loginService = {
 			regKeyId = result?.regKeyId
 		}
 
+		const userRow = await userService.selectByEmailIncludeDel(c, email);
+
+		if (userRow && userRow.isDel === isDel.DELETE) {
+			throw new BizError(t('isDelUser'));
+		}
+
+		if (userRow) {
+			await ensureUserAccountConsistency(c, email, userRow);
+			throw new BizError(t('isRegAccount'));
+		}
+
 		const accountRow = await accountService.selectByEmailIncludeDel(c, email);
 
 		if (accountRow && accountRow.isDel === isDel.DELETE) {
@@ -128,9 +162,28 @@ const loginService = {
 
 		const { salt, hash } = await saltHashUtils.hashPassword(password);
 
-		const userId = await userService.insert(c, { email, regKeyId,password: hash, salt, type: type || defType });
+		let userId = null;
 
-		await accountService.insert(c, { userId: userId, email, name: emailUtils.getName(email) });
+		try {
+			userId = await userService.insert(c, { email, regKeyId,password: hash, salt, type: type || defType });
+			await accountService.insert(c, { userId: userId, email, name: emailUtils.getName(email) });
+		} catch (error) {
+			if (!isUniqueEmailError(error)) {
+				throw error;
+			}
+
+			const latestUserRow = await userService.selectByEmailIncludeDel(c, email);
+
+			if (latestUserRow && latestUserRow.isDel === isDel.DELETE) {
+				throw new BizError(t('isDelUser'));
+			}
+
+			if (latestUserRow) {
+				await ensureUserAccountConsistency(c, email, latestUserRow);
+			}
+
+			throw new BizError(t('isRegAccount'));
+		}
 
 		await userService.updateUserInfo(c, userId, true);
 
